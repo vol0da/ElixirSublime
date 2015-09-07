@@ -36,16 +36,20 @@ defmodule SublimeCompletion do
     {:ok, data} = :gen_tcp.recv(socket, 0)
     case data |> String.strip |> String.split(" ", parts: 2) do
       ["COMPLETE", expr] ->
-        expr 
+        expr
           |> normalize_expr
           |> expand
           |> Poison.encode_to_iodata!
       ["PATH", path] ->
-        path 
+        path
           |> Code.append_path
+
+        for app <- Path.wildcard(path <> "/*.app") do
+           app |> Path.basename(".app") |> String.to_atom |> Application.load
+        end
         nil
       ["GOTO", target] ->
-        target 
+        target
           |> find_goto
           |> Poison.encode_to_iodata!
       _ ->
@@ -87,7 +91,7 @@ defmodule SublimeCompletion do
     [%{type: :module, name: name, content: "#{name}."}]
   end
   defp make_completions(module_docs, function, arity) do
-    args = 
+    args =
       if module_docs == nil do
         case arity do
           0 -> []
@@ -96,26 +100,26 @@ defmodule SublimeCompletion do
       else
         case List.keyfind(module_docs, {function, arity}, 0) do
           {{^function, ^arity}, _, _, args, _} ->
-            Enum.map args, fn 
+            Enum.map args, fn
               {:\\, _, [{arg, _, _}|_]} -> {:optional, arg}
-              {arg, _, _} -> {:required, arg} 
+              {arg, _, _} -> {:required, arg}
             end
           _ ->
             []
         end
       end
 
-    args 
+    args
       |> make_variants
       |> Enum.map(fn args ->
         content =
           case args do
-            [] -> 
+            [] ->
               function
-            args -> 
-              placeholder_args = args 
+            args ->
+              placeholder_args = args
                 |> Enum.reverse
-                |> Enum.with_index 
+                |> Enum.with_index
                 |> Enum.map(fn {arg, i} -> "${#{i + 1}:#{arg}}" end)
                 |> Enum.join(", ")
               "#{function}(#{placeholder_args})"
@@ -132,24 +136,24 @@ defmodule SublimeCompletion do
       {:yes, hint, []} when length(hint) > 0 ->
         expand("#{expr}#{hint}")
       {:yes, [], entries} when length(entries) > 0 ->
-        module_docs = expr 
-          |> String.slice(0..-2) 
-          |> String.to_atom 
+        module_docs = expr
+          |> String.slice(0..-2)
+          |> String.to_atom
           |> Code.get_docs(:docs)
-        entries 
+        entries
           |> Enum.map(&to_string/1)
           |> Enum.map(&String.split(&1, "/"))
           |> Enum.flat_map fn
             [module] ->
               make_completions(module)
-            [function, arity] -> 
+            [function, arity] ->
               function = String.to_atom(function)
               arity = String.to_integer(arity)
               make_completions(module_docs, function, arity)
             _ ->
               []
           end
-      {:no, [], []} -> 
+      {:no, [], []} ->
         []
     end
   end
@@ -174,9 +178,9 @@ defmodule SublimeCompletion do
   end
 
   defp find_goto(target) when is_bitstring(target) do
-    target 
-      |> normalize_goto 
-      |> split_goto 
+    target
+      |> normalize_goto
+      |> split_goto
       |> find_goto
   end
   defp find_goto({nil, nil}), do: nil
